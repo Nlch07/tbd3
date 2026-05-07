@@ -10,7 +10,7 @@ button { width: 100%; padding: 15px; border-radius: 8px; border: none; cursor: p
 .primary-btn { background: #4ade80; color: #0f172a; }
 
 /* Чат */
-.chat-container { display: flex; flex-direction: column; height: 100%; }
+.chat-container { display: flex; flex-direction: column; height: 80%; }
 .messages-window { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; }
 .msg { padding: 10px; border-radius: 12px; max-width: 85%; word-wrap: break-word; }
 .my-msg { align-self: flex-end; background: #059669; }
