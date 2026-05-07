@@ -1,11 +1,23 @@
 <div class="chat-container">
-    <div style="padding:10px; display:flex; justify-content:space-between; background:#0f172a;">
-        <span>AstikChat</span>
-        <button id="logoutBtn" style="width:auto; padding:5px 10px; font-size:12px;">Выйти</button>
+    <div class="chat-header">
+        <span>AstikChat v2</span>
+        <button id="logoutBtn" class="logout-btn">Выйти</button>
     </div>
-    <div class="messages-window"></div>
+
+    <div class="messages-window">
+        </div>
+
     <div class="input-area">
-        <input type="text" id="msgInput" placeholder="Сообщение...">
-        <button id="sendBtn" class="primary-btn">></button>
+        <input type="file" id="fileInput" style="display: none;" accept="image/*,text/plain,application/pdf">
+        
+        <button type="button" class="icon-btn" onclick="document.getElementById('fileInput').click()" title="Прикрепить файл">
+            📎
+        </button>
+        
+        <input type="text" id="msgInput" placeholder="Введите сообщение..." autocomplete="off">
+        
+        <button id="sendBtn" class="primary-btn">
+            <span style="font-size: 20px; color: #1a1a1a;">➤</span>
+        </button>
     </div>
 </div>
