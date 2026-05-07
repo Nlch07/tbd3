@@ -11,19 +11,14 @@ async function loadView(viewName) {
         if (viewName === 'auth') initAuth();
         if (viewName === 'chat') initChat();
     } catch (e) {
-        app.innerHTML = `<h2 style="color:red;text-align:center;">Ошибка: ${path} не найден</h2>`;
+        app.innerHTML = `<h2 style="color:red;text-align:center;">Ошибка загрузки интерфейса</h2>`;
     }
 }
 
 function initAuth() {
-    const guestBtn = document.getElementById('guestBtn');
-    if (guestBtn) {
-        guestBtn.onclick = async () => {
-            const { error } = await supabase.auth.signInAnonymously();
-            if (error) alert('Ошибка: ' + error.message);
-        };
-    }
-    // Остальные кнопки (login, reg) как в прошлом коде...
+    document.getElementById('guestBtn').onclick = async () => {
+        await supabase.auth.signInAnonymously();
+    };
 }
 
 async function initChat() {
@@ -31,73 +26,99 @@ async function initChat() {
     const win = document.querySelector('.messages-window');
     const sendBtn = document.getElementById('sendBtn');
     const msgInput = document.getElementById('msgInput');
+    const fileInput = document.getElementById('fileInput');
+    const logoutBtn = document.getElementById('logoutBtn');
 
-    sendBtn.onclick = null;
-    supabase.removeAllChannels();
+    if (logoutBtn) logoutBtn.onclick = () => supabase.auth.signOut();
 
     const renderedIds = new Set();
 
-    const render = (msg, isOptimistic = false) => {
-        // Если это пришло из базы и такое сообщение уже есть (наше "серое" стало "ярким")
+    const render = (msg) => {
         if (msg.id && renderedIds.has(msg.id)) return;
-        
-        // Поиск временного сообщения по тексту (чтобы заменить его ярким)
-        const existingTemp = Array.from(document.querySelectorAll('.msg-temp'))
-                                  .find(el => el.innerText.includes(msg.text));
-
-        if (existingTemp && msg.id) {
-            existingTemp.classList.remove('msg-temp');
-            existingTemp.style.opacity = '1';
-            renderedIds.add(msg.id);
-            return; // Не создаем новый элемент, просто "проявили" старый
-        }
-
         if (msg.id) renderedIds.add(msg.id);
 
         const div = document.createElement('div');
         const isMy = msg.user_id === user.id;
-        div.className = `msg ${isMy ? 'my-msg' : 'other-msg'} ${isOptimistic ? 'msg-temp' : ''}`;
-        
-        if (isOptimistic) div.style.opacity = '0.5';
+        div.className = `msg ${isMy ? 'my-msg' : 'other-msg'}`;
 
         const name = msg.user_email ? msg.user_email.split('@')[0] : 'Гость';
         const time = new Date(msg.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+
+        let content = `<div>${msg.text}</div>`;
         
-        div.innerHTML = `<div style="font-size:0.7em; opacity:0.6;">${name} • ${time}</div>${msg.text}`;
+        // Проверка: является ли сообщение ссылкой на файл в Supabase
+        // Название бакета в ссылке соответствует твоему Photos
+        const isFile = msg.text.includes('/storage/v1/object/public/Photos/');
+        
+        if (isFile) {
+            const isImg = msg.text.match(/\.(jpeg|jpg|gif|png)$/i);
+            if (isImg) {
+                content = `<img src="${msg.text}" onclick="window.open('${msg.text}')" title="Открыть оригинал">`;
+            } else {
+                content = `<a href="${msg.text}" target="_blank" class="file-attachment">📄 Документ</a>`;
+            }
+        }
+
+        div.innerHTML = `<div class="msg-info">${name} • ${time}</div>${content}`;
         win.appendChild(div);
         win.scrollTop = win.scrollHeight;
     };
 
-    // Загрузка истории
-    const { data } = await supabase.from('messages').select('*').order('created_at');
-    if (data) data.forEach(render);
+    // 1. Загрузка истории
+    const { data: history } = await supabase.from('messages').select('*').order('created_at');
+    if (history) history.forEach(render);
 
-    // ОТПРАВКА
+    // 2. Отправка текста
     sendBtn.onclick = async () => {
         const text = msgInput.value.trim();
         if (!text) return;
-
-        // Рисуем мгновенно
-        render({
-            text: text,
-            user_id: user.id,
-            user_email: user.email,
-            created_at: new Date().toISOString()
-        }, true);
-        
         msgInput.value = '';
-
-        await supabase.from('messages').insert([
-            { text: text, user_id: user.id, user_email: user.email }
-        ]);
+        await supabase.from('messages').insert([{ text, user_id: user.id, user_email: user.email }]);
     };
 
-    // REALTIME
-    supabase.channel('room1').on('postgres_changes', { 
-        event: 'INSERT', 
-        schema: 'public', 
-        table: 'messages' 
-    }, p => render(p.new)).subscribe();
+    // 3. Отправка файлов
+    fileInput.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (file.size > 5 * 1024 * 1024) {
+            alert('Файл слишком большой (макс 5МБ)');
+            return;
+        }
+
+        const fileName = `${Date.now()}-${file.name}`;
+        const filePath = `${user.id}/${fileName}`;
+
+        try {
+            // Загружаем в бакет Photos
+            const { error: upErr } = await supabase.storage
+                .from('Photos') 
+                .upload(filePath, file);
+
+            if (upErr) throw upErr;
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('Photos')
+                .getPublicUrl(filePath);
+
+            await supabase.from('messages').insert([{ 
+                text: publicUrl, 
+                user_id: user.id, 
+                user_email: user.email 
+            }]);
+
+        } catch (err) {
+            alert('Ошибка: ' + (err.message || 'Не удалось отправить'));
+            console.error(err);
+        } finally {
+            fileInput.value = '';
+        }
+    };
+
+    // 4. Слушаем новые сообщения в реальном времени
+    supabase.channel('messages')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, p => render(p.new))
+        .subscribe();
 }
 
 supabase.auth.onAuthStateChange((e, session) => loadView(session ? 'chat' : 'auth'));
